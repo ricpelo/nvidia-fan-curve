@@ -1,15 +1,19 @@
 import subprocess
 import sys
 import time
+import psutil
+import signal
+import os
+
 
 T_MIN: int = 50
 T_MAX: int = 90
 V_MIN: int = 0
 V_MAX: int = 90
 V_CEBADO: int = 30
-SLEEP = 7
+SLEEP: int = 7
 
-# Temperatura: velocidad
+# Temperatura (ºC): velocidad (%)
 CURVA: dict[int, int] = {
     # 50: 30,
     55: 45,
@@ -20,6 +24,22 @@ CURVA: dict[int, int] = {
     80: 80,
     85: 85
 }
+
+
+def kill_already_running() -> None:
+    salir = False
+    while not salir:
+        salir = True
+        for p in psutil.process_iter():
+            if os.getpid() == p.pid:
+                continue
+            cmdline = ' '.join(p.cmdline())
+            if sys.argv[0] in cmdline:
+                salir = False
+                os.kill(p.pid, signal.SIGUSR1)
+                log(f'Killed process {p.pid}')
+                esperar()
+
 
 def buscar_objetivo(temp: int, curva: dict[int, int]) -> tuple[int, int]:
     if temp < T_MIN:
@@ -53,16 +73,16 @@ def siguiente_velocidad(actual: int, objetivo: int, curva: dict[int, int]) -> in
     return V_MIN
 
 
-def run_command(command):
+def run_command(command: str) -> subprocess.CompletedProcess[str]:
     comando = ['nvidia-settings', command, '-t']
     return subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
 
 
-def get_query_num(query):
+def get_query_num(query: str) -> int:
     return int(run_command(query).stdout.split('\n', 1)[0].split(' ', 1)[0])
 
 
-def get_query_str(query):
+def get_query_str(query: str) -> int:
     return int(run_command(query).stdout.strip())
 
 
@@ -82,12 +102,12 @@ def set_speed(fan: int, veloc: int) -> None:
     run_command(f'-a=[fan:{fan}]/GPUTargetFanSpeed={veloc}')
 
 
-def set_speeds(veloc):
+def set_speeds(veloc: int) -> None:
     for fan in range(get_num_fans()):
         set_speed(fan, veloc)
 
 
-def set_fan_control(gpu: int, estado: int):
+def set_fan_control(gpu: int, estado: int) -> None:
     run_command(f'-a=[gpu:{gpu}]/GPUFanControlState={estado}')
 
 
@@ -108,16 +128,20 @@ def log(s: str) -> None:
     print(s)
 
 
-def cebador(fan, objetivo):
-    if get_speed(fan) == 0 and objetivo > 0 and objetivo != V_CEBADO:
+def esperar(tiempo=SLEEP):
+    time.sleep(tiempo)
+
+
+def cebador(fan: int, sgte_veloc: int) -> None:
+    if get_speed(fan) == 0 and sgte_veloc > 0 and sgte_veloc != V_CEBADO:
         log('Iniciando proceso de cebado...')
         set_speed(fan, V_CEBADO)
         while get_speed(fan) < V_CEBADO:
             log('Finalizando proceso de cebado...')
-            time.sleep(SLEEP)
+            esperar()
 
 
-def final() -> None:
+def finalizar(_signum, _stack) -> None:
     i = 0
 
     while True:
@@ -135,7 +159,7 @@ def final() -> None:
                 veloc = mas_alta if get_speed(fan) < mas_alta else V_CEBADO
                 set_speed(fan, veloc)
 
-        time.sleep(SLEEP)
+        esperar()
 
         # Si después de 10 intentos, la temperatura sigue alta:
         if i == 10:
@@ -153,14 +177,42 @@ def final() -> None:
     sys.exit(0)
 
 
-print(25, buscar_objetivo(25, CURVA))
-print(47, buscar_objetivo(47, CURVA))
-print(52, buscar_objetivo(52, CURVA))
-print(55, buscar_objetivo(55, CURVA))
-print(61, buscar_objetivo(61, CURVA))
-print(82, buscar_objetivo(82, CURVA))
-print(88, buscar_objetivo(88, CURVA))
+def finalizar_usr(_signum, _stack):
+    msg = 'Proceso temp.py detenido'
+    comando = ['notify-send', '-u', 'critical', msg]
+    subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
+    log(msg)
+    sys.exit(0)
 
-print(get_temp(0))
 
-print(CURVA)
+def bucle(fan: int, curva: dict[int, int]) -> None:
+    cur_temp = get_temp(fan)
+    cur_speed = get_speed(fan)
+    t, obj = buscar_objetivo(cur_temp, curva)
+    sgte_veloc = siguiente_velocidad(cur_speed, obj, curva)
+    if cur_speed != sgte_veloc:
+        cebador(fan, sgte_veloc)
+        set_speed(fan, sgte_veloc)
+
+def main():
+    sigs = {
+        signal.SIGINT,
+        signal.SIGHUP,
+        signal.SIGQUIT,
+        signal.SIGABRT,
+        signal.SIGALRM,
+        signal.SIGTERM
+    }
+
+    for sig in sigs:
+        signal.signal(sig, finalizar)
+
+    signal.signal(signal.SIGUSR1, finalizar_usr)
+    kill_already_running()
+    set_fans_control(1)
+    log(f'Started process por {get_num_gpus()} GPUs and {get_num_fans()} fans')
+
+    while True:
+        for fan in range(get_num_fans()):
+            bucle(fan, CURVA)
+            esperar()
