@@ -53,21 +53,33 @@ def siguiente_velocidad(actual: int, objetivo: int, curva: dict[int, int]) -> in
     return V_MIN
 
 
+def run_command(command):
+    comando = ['nvidia-settings', command, '-t']
+    return subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
+
+
+def get_query_num(query):
+    return int(run_command(query).stdout.split('\n', 1)[0].split(' ', 1)[0])
+
+
+def get_query_str(query):
+    return int(run_command(query).stdout.strip())
+
+
 def get_temp(gpu: int) -> int:
-    comando = ['nvidia-settings', f'-q=[gpu:{gpu}]/GPUCoreTemp', '-t']
-    res = subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
-    return int(res.stdout.strip())
+    return get_query_str(f'-q=[gpu:{gpu}]/GPUCoreTemp')
+
+
+def get_temps() -> list[int]:
+    return [get_temp(gpu) for gpu in range(get_num_gpus())]
 
 
 def get_speed(fan: int) -> int:
-    comando = ['nvidia-settings', f'-q=[fan:{fan}]/GPUCurrentFanSpeed', '-t']
-    res = subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
-    return int(res.stdout.strip())
+    return get_query_str(f'-q=[fan:{fan}]/GPUCurrentFanSpeed')
 
 
 def set_speed(fan: int, veloc: int) -> None:
-    comando = ['nvidia-settings', f'-a=[fan:{fan}]/GPUTargetFanSpeed={veloc}', '-t']
-    res = subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
+    run_command(f'-a=[fan:{fan}]/GPUTargetFanSpeed={veloc}')
 
 
 def set_speeds(veloc):
@@ -76,8 +88,7 @@ def set_speeds(veloc):
 
 
 def set_fan_control(gpu: int, estado: int):
-    comando = ['nvidia-settings', f'-a=[gpu:{gpu}]/GPUFanControlState={estado}', '-t']
-    res = subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
+    run_command(f'-a=[gpu:{gpu}]/GPUFanControlState={estado}')
 
 
 def set_fans_control(estado: int):
@@ -86,15 +97,11 @@ def set_fans_control(estado: int):
 
 
 def get_num_gpus() -> int:
-    comando = ['nvidia-settings', '-q=gpus', '-t']
-    res = subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
-    return int(res.stdout.split('\n', 1)[0].split(' ', 1)[0])
+    return get_query_num('-q=gpus')
 
 
 def get_num_fans() -> int:
-    comando = ['nvidia-settings', '-q=fans', '-t']
-    res = subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
-    return int(res.stdout.split('\n', 1)[0].split(' ', 1)[0])
+    return get_query_num('-q=fans')
 
 
 def log(s: str) -> None:
@@ -109,9 +116,6 @@ def cebador(fan, objetivo):
             log('Finalizando proceso de cebado...')
             time.sleep(SLEEP)
 
-
-def get_temps() -> list[int]:
-    return [get_temp(gpu) for gpu in range(get_num_gpus())]
 
 def final() -> None:
     i = 0
@@ -147,6 +151,7 @@ def final() -> None:
     set_fans_control(0)
     log('Fan control set back to auto mode.')
     sys.exit(0)
+
 
 print(25, buscar_objetivo(25, CURVA))
 print(47, buscar_objetivo(47, CURVA))
