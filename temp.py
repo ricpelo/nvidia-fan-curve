@@ -1,18 +1,23 @@
+#!/usr/bin/python3
+
 import subprocess
 import sys
 import time
-import psutil
 import signal
 import os
+import datetime
+import psutil
 
 
-T_MIN: int = 50
-T_MAX: int = 90
-V_MIN: int = 0
-V_MAX: int = 90
-V_CEBADO: int = 30
-SLEEP: int = 7
+T_MIN: int    = 50 # Temperatura mínima para encender el ventilador
+T_MAX: int    = 90 # Temperatura a partir de la cual se enciende al 100%
+V_MIN: int    = 0  # Velocidad mínima del ventilador
+V_MAX: int    = 90 # Velocidad máxima del ventilador
+V_CEBADO: int = 30 # Velocidad de cebado
+SLEEP: int    = 7  # Segundos de espera entre comprobaciones
 
+
+# Curva de temperaturas y velocidades
 # Temperatura (ºC): velocidad (%)
 CURVA: dict[int, int] = {
     # 50: 30,
@@ -99,7 +104,7 @@ def get_speed(fan: int) -> int:
 
 
 def set_speed(fan: int, veloc: int) -> None:
-    run_command(f'-a=[fan:{fan}]/GPUTargetFanSpeed={veloc}')
+    log(run_command(f'-a=[fan:{fan}]/GPUTargetFanSpeed={veloc}').stdout.strip())
 
 
 def set_speeds(veloc: int) -> None:
@@ -108,7 +113,7 @@ def set_speeds(veloc: int) -> None:
 
 
 def set_fan_control(gpu: int, estado: int) -> None:
-    run_command(f'-a=[gpu:{gpu}]/GPUFanControlState={estado}')
+    log(run_command(f'-a=[gpu:{gpu}]/GPUFanControlState={estado}').stdout.strip())
 
 
 def set_fans_control(estado: int):
@@ -125,7 +130,8 @@ def get_num_fans() -> int:
 
 
 def log(s: str) -> None:
-    print(s)
+    ts = datetime.datetime.now().replace(microsecond=0)
+    print(f'{ts} - {s}')
 
 
 def esperar(tiempo=SLEEP):
@@ -155,8 +161,9 @@ def finalizar(_signum, _stack) -> None:
         if i == 0:
             mas_alta = next(iter(CURVA))
             for fan in range(get_num_fans()):
-                # Si ya gira a más de 45%, probamos con 45%; si no, probamos con 30%:
-                veloc = mas_alta if get_speed(fan) < mas_alta else V_CEBADO
+                # Si ya gira a más o igual de 45%, probamos con 45%
+                # Si no, probamos con 30%:
+                veloc = mas_alta if get_speed(fan) >= mas_alta else V_CEBADO
                 set_speed(fan, veloc)
 
         esperar()
@@ -188,9 +195,10 @@ def finalizar_usr(_signum, _stack):
 def bucle(fan: int, curva: dict[int, int]) -> None:
     cur_temp = get_temp(fan)
     cur_speed = get_speed(fan)
-    t, obj = buscar_objetivo(cur_temp, curva)
+    _, obj = buscar_objetivo(cur_temp, curva)
     sgte_veloc = siguiente_velocidad(cur_speed, obj, curva)
     if cur_speed != sgte_veloc:
+        log(f'Cambiando a velocidad {sgte_veloc}, con objetivo {obj}.')
         cebador(fan, sgte_veloc)
         set_speed(fan, sgte_veloc)
 
@@ -209,10 +217,15 @@ def main():
 
     signal.signal(signal.SIGUSR1, finalizar_usr)
     kill_already_running()
+    log(f'Started process por {get_num_gpus()} GPUs and {get_num_fans()} fans.')
     set_fans_control(1)
-    log(f'Started process por {get_num_gpus()} GPUs and {get_num_fans()} fans')
+    set_speeds(0)
 
     while True:
         for fan in range(get_num_fans()):
             bucle(fan, CURVA)
             esperar()
+
+
+if __name__ == '__main__':
+    main()
