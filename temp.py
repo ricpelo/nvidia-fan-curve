@@ -11,6 +11,7 @@ import psutil
 
 T_MIN: int    = 50 # Temperatura mínima para encender el ventilador
 T_MAX: int    = 90 # Temperatura a partir de la cual se enciende al 100%
+T_FIN: int    = 45 # Temperatura a alcanzar al salir
 V_MIN: int    = 0  # Velocidad mínima del ventilador
 V_MAX: int    = 90 # Velocidad máxima del ventilador
 V_CEBADO: int = 30 # Velocidad de cebado
@@ -80,7 +81,12 @@ def siguiente_velocidad(actual: int, objetivo: int, curva: dict[int, int]) -> in
 
 def run_command(command: str) -> subprocess.CompletedProcess[str]:
     comando = ['nvidia-settings', command, '-t']
-    return subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
+    return subprocess.run(
+        comando,
+        encoding='utf-8',
+        check=True,
+        stdout=subprocess.PIPE
+    )
 
 
 def get_query_num(query: str) -> int:
@@ -104,7 +110,8 @@ def get_speed(fan: int) -> int:
 
 
 def set_speed(fan: int, veloc: int) -> None:
-    log(run_command(f'-a=[fan:{fan}]/GPUTargetFanSpeed={veloc}').stdout.strip())
+    log(run_command(f'-a=[fan:{fan}]/GPUTargetFanSpeed={veloc}')
+        .stdout.strip())
 
 
 def set_speeds(veloc: int) -> None:
@@ -113,7 +120,8 @@ def set_speeds(veloc: int) -> None:
 
 
 def set_fan_control(gpu: int, estado: int) -> None:
-    log(run_command(f'-a=[gpu:{gpu}]/GPUFanControlState={estado}').stdout.strip())
+    log(run_command(f'-a=[gpu:{gpu}]/GPUFanControlState={estado}')
+        .stdout.strip())
 
 
 def set_fans_control(estado: int):
@@ -132,27 +140,22 @@ def get_num_fans() -> int:
 def log(s: str) -> None:
     ts = datetime.datetime.now().replace(microsecond=0)
     print(f'{ts} - {s}')
+    sys.stdout.flush()
 
 
 def esperar(tiempo=SLEEP):
     time.sleep(tiempo)
 
 
-def cebador(fan: int, sgte_veloc: int) -> None:
-    if get_speed(fan) == 0 and sgte_veloc > 0 and sgte_veloc != V_CEBADO:
-        log('Iniciando proceso de cebado...')
-        set_speed(fan, V_CEBADO)
-        while get_speed(fan) < V_CEBADO:
-            log('Finalizando proceso de cebado...')
-            esperar()
-
-
 def finalizar(_signum, _stack) -> None:
     i = 0
 
     while True:
-        # Si todas las GPUs están por debajo de los 46º, nos salimos:
-        if all(temp <= 46 for temp in get_temps()):
+        # Si todas las GPUs están por debajo de los 45º, nos salimos:
+        try:
+            if all(temp <= T_FIN for temp in get_temps()):
+                break
+        except ValueError:
             break
 
         log('Esperando a que baje la temperatura...')
@@ -192,6 +195,17 @@ def finalizar_usr(_signum, _stack):
     sys.exit(0)
 
 
+def cebador(fan: int, sgte_veloc: int) -> bool:
+    if get_speed(fan) == 0 and sgte_veloc > 0 and sgte_veloc != V_CEBADO:
+        log('Iniciando proceso de cebado...')
+        set_speed(fan, V_CEBADO)
+        while get_speed(fan) < V_CEBADO:
+            log('Finalizando proceso de cebado...')
+            esperar()
+        return True
+    return False
+
+
 def bucle(fan: int, curva: dict[int, int]) -> None:
     cur_temp = get_temp(fan)
     cur_speed = get_speed(fan)
@@ -199,8 +213,8 @@ def bucle(fan: int, curva: dict[int, int]) -> None:
     sgte_veloc = siguiente_velocidad(cur_speed, obj, curva)
     if cur_speed != sgte_veloc:
         log(f'Cambiando a velocidad {sgte_veloc}, con objetivo {obj}.')
-        cebador(fan, sgte_veloc)
-        set_speed(fan, sgte_veloc)
+        if not cebador(fan, sgte_veloc):
+            set_speed(fan, sgte_veloc)
 
 def main():
     sigs = {
