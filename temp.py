@@ -205,7 +205,7 @@ def finalizar_usr(_signum, _stack):
 
 
 def cebador(fan: int, sgte_veloc: int) -> bool:
-    if get_speed(fan) == 0 and sgte_veloc > 0 and sgte_veloc != V_CEB:
+    if get_speed(fan) == 0 and sgte_veloc > 0 and sgte_veloc > V_CEB:
         log('Iniciando proceso de cebado...')
         set_speed(fan, V_CEB)
         while get_speed(fan) < V_CEB:
@@ -220,12 +220,8 @@ def bucle(gpu: int, fan: int, curva: dict[int, int]) -> None:
     temp_actual = get_temp(gpu)
     _, objetivo = buscar_objetivo(temp_actual, curva)
     sgte_veloc = siguiente_velocidad(veloc_actual, objetivo, curva)
-    primera_temp = T_MIN
-    for t in curva:
-        if t > T_MIN:
-            primera_temp = t
-            break
-    if veloc_actual != 0 and sgte_veloc == 0 and T_MIN < temp_actual < primera_temp:
+    if veloc_actual != 0 and sgte_veloc == 0 and temp_actual > T_FIN:
+        log(f'No se apaga el ventilador por encima de {T_FIN} grados.')
         return
     if veloc_actual != sgte_veloc:
         log(f'Cambiando a velocidad {sgte_veloc}, con objetivo {objetivo}.')
