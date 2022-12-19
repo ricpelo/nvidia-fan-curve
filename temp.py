@@ -9,19 +9,19 @@ import datetime
 import psutil
 
 
-T_MIN: int    = 50 # Temperatura mínima para encender el ventilador
-T_MAX: int    = 90 # Temperatura a partir de la cual se enciende al 100%
-T_FIN: int    = 45 # Temperatura a alcanzar al salir
-V_MIN: int    = 0  # Velocidad mínima del ventilador
-V_MAX: int    = 90 # Velocidad máxima del ventilador
-V_CEBADO: int = 30 # Velocidad de cebado
-SLEEP: int    = 7  # Segundos de espera entre comprobaciones
+T_MIN: int = 50   # Temperatura mínima para encender el ventilador
+T_MAX: int = 90   # Temperatura a partir de la cual se enciende al 100%
+T_FIN: int = 45   # Temperatura a alcanzar al salir
+V_MIN: int = 0    # Velocidad mínima del ventilador
+V_MAX: int = 90   # Velocidad máxima del ventilador
+V_CEB: int = 30   # Velocidad de cebado
+SLEEP: int = 7    # Segundos de espera entre comprobaciones
 
 
 # Curva de temperaturas y velocidades
 # Temperatura (ºC): velocidad (%)
 CURVA: dict[int, int] = {
-    # 50: 30,
+    # 50: 30,     # T_MIN: V_CEB
     55: 45,
     60: 60,
     65: 64,
@@ -39,12 +39,24 @@ def kill_already_running() -> None:
         for p in psutil.process_iter():
             if os.getpid() == p.pid:
                 continue
+            file = os.path.basename(__file__)
             cmdline = ' '.join(p.cmdline())
-            if sys.argv[0] in cmdline:
+            if file in cmdline:
                 salir = False
                 os.kill(p.pid, signal.SIGUSR1)
                 log(f'Killed process {p.pid}')
                 esperar()
+
+
+def hay_mas_procesos() -> bool:
+    for p in psutil.process_iter():
+        if os.getpid() == p.pid:
+            continue
+        file = os.path.basename(__file__)
+        cmdline = ' '.join(p.cmdline())
+        if file in cmdline:
+            return True
+    return False
 
 
 def buscar_objetivo(temp: int, curva: dict[int, int]) -> tuple[int, int]:
@@ -166,7 +178,7 @@ def finalizar(_signum, _stack) -> None:
             for fan in range(get_num_fans()):
                 # Si ya gira a más o igual de 45%, probamos con 45%
                 # Si no, probamos con 30%:
-                veloc = mas_alta if get_speed(fan) >= mas_alta else V_CEBADO
+                veloc = mas_alta if get_speed(fan) >= mas_alta else V_CEB
                 set_speed(fan, veloc)
 
         esperar()
@@ -196,10 +208,10 @@ def finalizar_usr(_signum, _stack):
 
 
 def cebador(fan: int, sgte_veloc: int) -> bool:
-    if get_speed(fan) == 0 and sgte_veloc > 0 and sgte_veloc != V_CEBADO:
+    if get_speed(fan) == 0 and sgte_veloc > 0 and sgte_veloc != V_CEB:
         log('Iniciando proceso de cebado...')
-        set_speed(fan, V_CEBADO)
-        while get_speed(fan) < V_CEBADO:
+        set_speed(fan, V_CEB)
+        while get_speed(fan) < V_CEB:
             log('Finalizando proceso de cebado...')
             esperar()
         return True
@@ -230,7 +242,10 @@ def main():
         signal.signal(sig, finalizar)
 
     signal.signal(signal.SIGUSR1, finalizar_usr)
-    kill_already_running()
+    # kill_already_running()
+    if hay_mas_procesos():
+        log('Hay otro proceso ejecutándose.')
+        sys.exit(1)
     log(f'Started process por {get_num_gpus()} GPUs and {get_num_fans()} fans.')
     set_fans_control(1)
     set_speeds(0)
