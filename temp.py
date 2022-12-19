@@ -220,6 +220,13 @@ def bucle(gpu: int, fan: int, curva: dict[int, int]) -> None:
     temp_actual = get_temp(gpu)
     _, objetivo = buscar_objetivo(temp_actual, curva)
     sgte_veloc = siguiente_velocidad(veloc_actual, objetivo, curva)
+    primera_temp = T_MIN
+    for t in curva:
+        if t > T_MIN:
+            primera_temp = t
+            break
+    if veloc_actual != 0 and sgte_veloc == 0 and T_MIN < temp_actual < primera_temp:
+        return
     if veloc_actual != sgte_veloc:
         log(f'Cambiando a velocidad {sgte_veloc}, con objetivo {objetivo}.')
         if not cebador(fan, sgte_veloc):
