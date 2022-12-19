@@ -9,7 +9,7 @@ import datetime
 import psutil
 
 
-T_MIN: int = 50   # Temperatura mínima para encender el ventilador
+T_MIN: int = 50   # Temperatura por debajo de la cual el ventilador se apaga
 T_MAX: int = 90   # Temperatura a partir de la cual se enciende al 100%
 T_FIN: int = 45   # Temperatura a alcanzar al salir
 V_MIN: int = 0    # Velocidad mínima del ventilador
@@ -21,7 +21,7 @@ SLEEP: int = 7    # Segundos de espera entre comprobaciones
 # Curva de temperaturas y velocidades
 # Temperatura (ºC): velocidad (%)
 CURVA: dict[int, int] = {
-    # 50: 30,     # T_MIN: V_CEB
+  # 50: 30,
     55: 45,
     60: 60,
     65: 64,
@@ -71,10 +71,8 @@ def buscar_objetivo(temp: int, curva: dict[int, int]) -> tuple[int, int]:
 def siguiente_velocidad(actual: int, objetivo: int, curva: dict[int, int]) -> int:
     if actual == objetivo:
         return actual
-
     if objetivo == 0:
         return 0
-
     if actual < objetivo:
         for v in curva.values():
             if v <= actual:
@@ -82,7 +80,6 @@ def siguiente_velocidad(actual: int, objetivo: int, curva: dict[int, int]) -> in
             if v <= objetivo:
                 return v
         return V_MAX
-
     for v in reversed(curva.values()):
         if v >= actual:
             continue
@@ -218,15 +215,16 @@ def cebador(fan: int, sgte_veloc: int) -> bool:
     return False
 
 
-def bucle(fan: int, curva: dict[int, int]) -> None:
-    cur_temp = get_temp(fan)
-    cur_speed = get_speed(fan)
-    _, obj = buscar_objetivo(cur_temp, curva)
-    sgte_veloc = siguiente_velocidad(cur_speed, obj, curva)
-    if cur_speed != sgte_veloc:
-        log(f'Cambiando a velocidad {sgte_veloc}, con objetivo {obj}.')
+def bucle(gpu: int, fan: int, curva: dict[int, int]) -> None:
+    veloc_actual = get_speed(fan)
+    temp_actual = get_temp(gpu)
+    _, objetivo = buscar_objetivo(temp_actual, curva)
+    sgte_veloc = siguiente_velocidad(veloc_actual, objetivo, curva)
+    if veloc_actual != sgte_veloc:
+        log(f'Cambiando a velocidad {sgte_veloc}, con objetivo {objetivo}.')
         if not cebador(fan, sgte_veloc):
             set_speed(fan, sgte_veloc)
+
 
 def main():
     sigs = {
@@ -251,8 +249,9 @@ def main():
     set_speeds(0)
 
     while True:
-        for fan in range(get_num_fans()):
-            bucle(fan, CURVA)
+        for gpu in range(get_num_gpus()):
+            for fan in range(get_num_fans()):
+                bucle(gpu, fan, CURVA)
             esperar()
 
 
