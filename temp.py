@@ -45,42 +45,9 @@ GPUS_FANS: dict[int, list[int]] = {
 }
 
 
-class Command:
-    @staticmethod
-    def get_query_num(query: str) -> int:
-        return int(Command.run_command(query).stdout.split('\n', 1)[0].split(' ', 1)[0])
-
-
-    @staticmethod
-    def get_query_str(query: str) -> int:
-        return int(Command.run_command(query).stdout.strip())
-
-
-    @staticmethod
-    def run_command(command: str) -> subprocess.CompletedProcess[str]:
-        comando = ['nvidia-settings', command, '-t']
-        return subprocess.run(
-            comando,
-            encoding='utf-8',
-            check=True,
-            stdout=subprocess.PIPE
-        )
-
-
-    @staticmethod
-    def log(s: str) -> None:
-        ts = datetime.datetime.now().replace(microsecond=0)
-        print(f'{ts} - {s}')
-        sys.stdout.flush()
-
-
-    @staticmethod
-    def esperar(tiempo=SLEEP):
-        time.sleep(tiempo)
-
-
 class Fan:
-    __num_fans = None
+    __num_fans: int = -1
+
 
     def __init__(self, f_num: int, params: dict[str, int], curva: dict[int, int]) -> None:
         self.__f_num = f_num
@@ -92,8 +59,8 @@ class Fan:
 
     @classmethod
     def get_num_fans(cls) -> int:
-        if cls.__num_fans is None:
-            cls.__num_fans = Command.get_query_num('-q=fans')
+        if cls.__num_fans < 0:
+            cls.__num_fans = get_query_num('-q=fans')
         return cls.__num_fans
 
 
@@ -113,35 +80,28 @@ class Fan:
         return self.__v_ceb
 
 
-    def buscar_objetivo(self, temp: int) -> tuple[int, int]:
-        if temp < T_MIN:
-            return (0, 0)
-        for t, f in self.__curva.items():
-            if temp < t:
-                return (t, f)
-        return (T_MAX, V_MAX)
+    def get_curva(self):
+        return self.__curva
 
 
     def cebador(self, sgte_veloc: int) -> bool:
-        if self.get_speed() == 0 and sgte_veloc > 0 and sgte_veloc > V_CEB:
-            Command.log('Iniciando proceso de cebado...')
-            self.set_speed(V_CEB)
-            while self.get_speed() < V_CEB:
-                Command.log('Finalizando proceso de cebado...')
-                Command.esperar()
+        if self.get_speed() == 0 and sgte_veloc > 0 and sgte_veloc > self.get_v_ceb():
+            log('Iniciando proceso de cebado...')
+            self.set_speed(self.get_v_ceb())
+            while self.get_speed() < self.get_v_ceb():
+                log('Finalizando proceso de cebado...')
+                esperar()
             return True
         return False
 
 
     def get_speed(self) -> int:
-        return Command.get_query_str(f'-q=[fan:{self.get_f_num()}]/GPUCurrentFanSpeed')
+        return get_query_str(f'-q=[fan:{self.get_f_num()}]/GPUCurrentFanSpeed')
 
 
     def set_speed(self, veloc: int) -> None:
-        Command.log(
-            Command.run_command(f'-a=[fan:{self.get_f_num()}]/GPUTargetFanSpeed={veloc}')
-                .stdout.strip()
-        )
+        log(run_command(f'-a=[fan:{self.get_f_num()}]/GPUTargetFanSpeed={veloc}')
+            .stdout.strip())
 
 
     def siguiente_velocidad(self, actual: int, objetivo: int) -> int:
@@ -155,27 +115,31 @@ class Fan:
                     continue
                 if v <= objetivo:
                     return v
-            return V_MAX
+            return self.get_v_max()
         for v in reversed(self.__curva.values()):
             if v >= actual:
                 continue
             if v >= objetivo:
                 return v
-        return V_MIN
+        return self.get_v_min()
 
 
 class GPU:
-    __num_gpus = None
+    __num_gpus: int = -1
 
-    def __init__(self, g_num: int, fans: list[Fan]) -> None:
+
+    def __init__(self, g_num: int, params: dict[str, int], fans: list[Fan]) -> None:
         self.__g_num = g_num
         self.__fans = fans
+        self.__t_min = params['t_min']
+        self.__t_max = params['t_max']
+        self.__t_fin = params['t_fin']
 
 
     @classmethod
     def get_num_gpus(cls) -> int:
-        if cls.__num_gpus is None:
-            cls.__num_gpus = Command.get_query_num('-q=gpus')
+        if cls.__num_gpus < 0:
+            cls.__num_gpus = get_query_num('-q=gpus')
         return cls.__num_gpus
 
 
@@ -184,27 +148,50 @@ class GPU:
 
 
     def get_temp(self) -> int:
-        return Command.get_query_str(f'-q=[gpu:{self.g_num()}]/GPUCoreTemp')
+        return get_query_str(f'-q=[gpu:{self.g_num()}]/GPUCoreTemp')
 
 
     def get_fans(self) -> list[Fan]:
         return self.__fans
 
 
+    def get_t_min(self):
+        return self.__t_min
+
+
+    def get_t_max(self):
+        return self.__t_max
+
+
+    def get_t_fin(self):
+        return self.__t_fin
+
+
     def set_fan_control(self, estado: int) -> None:
-        Command.log(
-            Command.run_command(f'-a=[gpu:{self.g_num()}]/GPUFanControlState={estado}')
-                .stdout.strip()
-        )
+        log(run_command(f'-a=[gpu:{self.g_num()}]/GPUFanControlState={estado}')
+            .stdout.strip())
+
+
+    def buscar_objetivo(self, temp: int, fan: Fan) -> tuple[int, int]:
+        if temp < self.get_t_min():
+            return (0, 0)
+        for t, f in fan.get_curva().items():
+            if temp < t:
+                return (t, f)
+        return (self.get_t_max(), fan.get_v_max())
 
 
 class Manager:
-    def __init__(self, gpus) -> None:
-        self.__gpus = gpus
+    def __init__(self):
+        self.__gpus = []
 
 
     def get_gpus(self) -> list[GPU]:
         return self.__gpus
+
+
+    def set_gpus(self, gpus: list[GPU]) -> None:
+        self.__gpus = gpus
 
 
     def get_temps(self) -> list[int]:
@@ -222,17 +209,35 @@ class Manager:
             gpu.set_fan_control(estado)
 
 
-    def bucle(self, temp_actual: int, fan: Fan) -> None:
+    def bucle(self, temp_actual: int, gpu: GPU, fan: Fan) -> None:
         veloc_actual = fan.get_speed()
-        _, objetivo = fan.buscar_objetivo(temp_actual)
+        _, objetivo = gpu.buscar_objetivo(temp_actual, fan)
         sgte_veloc = fan.siguiente_velocidad(veloc_actual, objetivo)
-        if veloc_actual != 0 and sgte_veloc == 0 and temp_actual > T_FIN:
-            Command.log(f'No se apaga el ventilador por encima de {T_FIN} grados.')
+        if veloc_actual != 0 and sgte_veloc == 0 and temp_actual > gpu.get_t_fin():
+            log(f'No se apaga el ventilador por encima de {gpu.get_t_fin()} grados.')
             return
         if veloc_actual != sgte_veloc:
-            Command.log(f'Cambiando a velocidad {sgte_veloc}, con objetivo {objetivo}.')
+            log(f'Cambiando a velocidad {sgte_veloc}, con objetivo {objetivo}.')
             if not fan.cebador(sgte_veloc):
                 fan.set_speed(sgte_veloc)
+
+
+def get_query_num(query: str) -> int:
+    return int(run_command(query).stdout.split('\n', 1)[0].split(' ', 1)[0])
+
+
+def get_query_str(query: str) -> int:
+    return int(run_command(query).stdout.strip())
+
+
+def run_command(command: str) -> subprocess.CompletedProcess[str]:
+    comando = ['nvidia-settings', command, '-t']
+    return subprocess.run(
+        comando,
+        encoding='utf-8',
+        check=True,
+        stdout=subprocess.PIPE
+    )
 
 
 def kill_already_running() -> None:
@@ -247,8 +252,8 @@ def kill_already_running() -> None:
             if file in cmdline:
                 salir = False
                 os.kill(p.pid, signal.SIGUSR1)
-                Command.log(f'Killed process {p.pid}')
-                Command.esperar()
+                log(f'Killed process {p.pid}')
+                esperar()
 
 
 def hay_mas_procesos() -> bool:
@@ -262,16 +267,24 @@ def hay_mas_procesos() -> bool:
     return False
 
 
-def finalizar(_signum, _stack) -> None:
-    it = iter(CURVA)
-    v_primera = next(it)
+def log(s: str) -> None:
+    ts = datetime.datetime.now().replace(microsecond=0)
+    print(f'{ts} - {s}')
+    sys.stdout.flush()
+
+
+def esperar(tiempo=SLEEP):
+    time.sleep(tiempo)
+
+
+def finalizar(_signum, _frame) -> None:
     veloc = 0
     i = 0
 
     while True:
         # Si todas las GPUs están por debajo de T_FIN, nos salimos:
         try:
-            if all(temp <= T_FIN for temp in get_temps()):
+            if all(gpu.get_temp() <= gpu.get_t_fin() for gpu in manager.get_gpus()):
                 break
         except ValueError:
             break
@@ -280,42 +293,42 @@ def finalizar(_signum, _stack) -> None:
 
         # Al principio:
         if i == 0:
-            for gpu in get_gpus():
-                for fan in get_fans(gpu):
+            for gpu in manager.get_gpus():
+                for fan in gpu.get_fans():
                     # Si gira a menos de la primera velocidad de la curva,
                     # probamos primero con V_CEB. Si no, probamos a la
                     # primera velocidad:
-                    veloc = V_CEB if get_speed(fan) < v_primera else v_primera
-                    set_speed(fan, veloc)
+                    it = iter(fan.get_curva())
+                    v_primera = next(it)
+                    veloc = fan.get_v_ceb() if fan.get_speed() < v_primera else v_primera
+                    fan.set_speed(veloc)
 
         esperar()
 
         # Si después de 10 intentos, la temperatura sigue alta:
         if i == 10:
             # Subimos la velocidad:
-            for gpu in get_gpus():
-                for fan in get_fans(gpu):
-                    veloc = v_primera if get_speed(fan) < v_primera else next(it)
-                    set_speed(fan, veloc)
+            for gpu in manager.get_gpus():
+                for fan in gpu.get_fans():
+                    it = iter(fan.get_curva())
+                    v_primera = next(it)
+                    veloc = v_primera if fan.get_speed() < v_primera else next(it)
+                    fan.set_speed(veloc)
             i += 1
         elif i < 10:
             i += 1
 
-    set_fans_control(0)
+    manager.set_fans_control(0)
     log('Fan control set back to auto mode.')
     sys.exit(0)
 
 
-def finalizar_usr(_signum, _stack):
+def finalizar_usr(_signum, _frame):
     msg = 'Proceso temp.py detenido'
     comando = ['notify-send', '-u', 'critical', msg]
     subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
     log(msg)
     sys.exit(0)
-
-
-
-
 
 
 def main():
@@ -332,21 +345,42 @@ def main():
         signal.signal(sig, finalizar)
 
     signal.signal(signal.SIGUSR1, finalizar_usr)
+
     # kill_already_running()
     if hay_mas_procesos():
         log('Hay otro proceso ejecutándose.')
         sys.exit(1)
-    log(f'Started process por {get_num_gpus()} GPUs and {get_num_fans()} fans.')
-    set_fans_control(1)
-    set_speeds(0)
+
+    try:
+        log(f'Started process por {GPU.get_num_gpus()} GPUs and {Fan.get_num_fans()} fans.')
+    except ValueError:
+        log('No se pudo obtener el número de GPUs y ventiladores.')
+        sys.exit(1)
+
+    gpus = []
+
+    for g_num, f_nums in GPUS_FANS.items():
+        fans = []
+        for f_num in f_nums:
+            fan = Fan(f_num, {'v_min': V_MIN, 'v_max': V_MAX, 'v_ceb': V_CEB}, CURVA)
+            fans.append(fan)
+        gpu = GPU(g_num, {'t_min': T_MIN, 't_max': T_MAX, 't_fin': T_FIN}, fans)
+
+    manager.set_gpus(gpus)
+
+
+    manager.set_fans_control(1)
+    manager.set_speeds(0)
 
     while True:
-        for gpu in get_gpus():
-            temp_actual = get_temp(gpu)
-            for fan in get_fans(gpu):
-                bucle(temp_actual, fan, CURVA)
+        for gpu in manager.get_gpus():
+            temp_actual = gpu.get_temp()
+            for fan in gpu.get_fans():
+                manager.bucle(temp_actual, gpu, fan)
             esperar()
 
+
+manager: Manager = Manager()
 
 if __name__ == '__main__':
     main()
