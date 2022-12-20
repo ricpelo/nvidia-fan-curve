@@ -21,7 +21,6 @@ SLEEP: int = 7    # Segundos de espera entre comprobaciones
 # Curva de temperaturas y velocidades
 # Temperatura (ºC): velocidad (%)
 CURVA: dict[int, int] = {
-  # 50: 30,
     55: 45,
     60: 60,
     65: 64,
@@ -29,6 +28,13 @@ CURVA: dict[int, int] = {
     75: 75,
     80: 80,
     85: 85
+}
+
+
+# GPU: [Lista de ventiladores]
+GPUS_FANS: dict[int, list[int]] = {
+    0: [0],
+    1: [1],
 }
 
 
@@ -111,7 +117,7 @@ def get_temp(gpu: int) -> int:
 
 
 def get_temps() -> list[int]:
-    return [get_temp(gpu) for gpu in range(get_num_gpus())]
+    return [get_temp(gpu) for gpu in get_gpus()]
 
 
 def get_speed(fan: int) -> int:
@@ -124,8 +130,9 @@ def set_speed(fan: int, veloc: int) -> None:
 
 
 def set_speeds(veloc: int) -> None:
-    for fan in range(get_num_fans()):
-        set_speed(fan, veloc)
+    for gpu in get_gpus():
+        for fan in get_fans(gpu):
+            set_speed(fan, veloc)
 
 
 def set_fan_control(gpu: int, estado: int) -> None:
@@ -134,12 +141,20 @@ def set_fan_control(gpu: int, estado: int) -> None:
 
 
 def set_fans_control(estado: int):
-    for gpu in range(get_num_gpus()):
+    for gpu in get_gpus():
         set_fan_control(gpu, estado)
 
 
 def get_num_gpus() -> int:
     return get_query_num('-q=gpus')
+
+
+def get_gpus() -> list[int]:
+    return list(GPUS_FANS.keys())[:get_num_gpus()]
+
+
+def get_fans(gpu: int) -> list[int]:
+    return GPUS_FANS[gpu][:get_num_fans()] if gpu in range(get_num_gpus()) else []
 
 
 def get_num_fans() -> int:
@@ -157,10 +172,13 @@ def esperar(tiempo=SLEEP):
 
 
 def finalizar(_signum, _stack) -> None:
+    it = iter(CURVA)
+    v_primera = next(it)
+    veloc = 0
     i = 0
 
     while True:
-        # Si todas las GPUs están por debajo de los 45º, nos salimos:
+        # Si todas las GPUs están por debajo de T_FIN, nos salimos:
         try:
             if all(temp <= T_FIN for temp in get_temps()):
                 break
@@ -171,22 +189,23 @@ def finalizar(_signum, _stack) -> None:
 
         # Al principio:
         if i == 0:
-            mas_alta = next(iter(CURVA))
-            for fan in range(get_num_fans()):
-                # Si ya gira a más o igual de 45%, probamos con 45%
-                # Si no, probamos con 30%:
-                veloc = mas_alta if get_speed(fan) >= mas_alta else V_CEB
-                set_speed(fan, veloc)
+            for gpu in get_gpus():
+                for fan in get_fans(gpu):
+                    # Si gira a menos de la primera velocidad de la curva,
+                    # probamos primero con V_CEB. Si no, probamos a la
+                    # primera velocidad:
+                    veloc = V_CEB if get_speed(fan) < v_primera else v_primera
+                    set_speed(fan, veloc)
 
         esperar()
 
         # Si después de 10 intentos, la temperatura sigue alta:
         if i == 10:
-            # Probamos con todos al 60%:
-            it = iter(CURVA)
-            veloc = next(it)
-            veloc = next(it)
-            set_speeds(veloc)
+            # Subimos la velocidad:
+            for gpu in get_gpus():
+                for fan in get_fans(gpu):
+                    veloc = v_primera if get_speed(fan) < v_primera else next(it)
+                    set_speed(fan, veloc)
             i += 1
         elif i < 10:
             i += 1
@@ -215,9 +234,8 @@ def cebador(fan: int, sgte_veloc: int) -> bool:
     return False
 
 
-def bucle(gpu: int, fan: int, curva: dict[int, int]) -> None:
+def bucle(temp_actual: int, fan: int, curva: dict[int, int]) -> None:
     veloc_actual = get_speed(fan)
-    temp_actual = get_temp(gpu)
     _, objetivo = buscar_objetivo(temp_actual, curva)
     sgte_veloc = siguiente_velocidad(veloc_actual, objetivo, curva)
     if veloc_actual != 0 and sgte_veloc == 0 and temp_actual > T_FIN:
@@ -252,9 +270,10 @@ def main():
     set_speeds(0)
 
     while True:
-        for gpu in range(get_num_gpus()):
-            for fan in range(get_num_fans()):
-                bucle(gpu, fan, CURVA)
+        for gpu in get_gpus():
+            temp_actual = get_temp(gpu)
+            for fan in get_fans(gpu):
+                bucle(temp_actual, fan, CURVA)
             esperar()
 
 
