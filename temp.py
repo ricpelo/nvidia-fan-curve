@@ -1,5 +1,8 @@
 #!/usr/bin/python3
 
+from __future__ import annotations
+from typing import Optional
+
 import subprocess
 import sys
 import time
@@ -31,22 +34,15 @@ CURVA: dict[int, int] = {
 }
 
 
-# Ventilador: curva
-CURVAS: dict[int, dict[int, int]] = {
-    0: CURVA,
-    # 1: CURVA
-}
-
-
-# GPU: [Lista de ventiladores]
-GPUS_FANS: dict[int, list[int]] = {
-    0: [0],
-    # 1: [1],
+# GPU: {Diccionario con cada número de ventilador y su curva asociada}
+GPUS_FANS: dict[int, dict[int, dict[int, int]]] = {
+    0: {0: CURVA},
+    # 1: {1: CURVA},
 }
 
 
 class Fan:
-    __num_fans: int = -1
+    __num_fans: Optional[int] = None
 
 
     def __init__(self, f_num: int, params: dict[str, int], curva: dict[int, int]) -> None:
@@ -55,11 +51,14 @@ class Fan:
         self.__v_min = params['v_min']
         self.__v_max = params['v_max']
         self.__v_ceb = params['v_ceb']
+        log(f'Creado ventilador n.º {f_num}.')
+        log(f'El ventilador n.º {f_num} tiene la siguiente curva:')
+        log(str(curva))
 
 
     @classmethod
     def get_num_fans(cls) -> int:
-        if cls.__num_fans < 0:
+        if cls.__num_fans is None:
             cls.__num_fans = get_query_num('-q=fans')
         return cls.__num_fans
 
@@ -104,6 +103,15 @@ class Fan:
             .stdout.strip())
 
 
+    def buscar_objetivo(self, temp: int, gpu: GPU) -> tuple[int, int]:
+        if temp < gpu.get_t_min():
+            return (0, 0)
+        for t, f in self.get_curva().items():
+            if temp < t:
+                return (t, f)
+        return (gpu.get_t_max(), self.get_v_max())
+
+
     def siguiente_velocidad(self, actual: int, objetivo: int) -> int:
         if actual == objetivo:
             return actual
@@ -125,7 +133,7 @@ class Fan:
 
 
 class GPU:
-    __num_gpus: int = -1
+    __num_gpus: Optional[int] = None
 
 
     def __init__(self, g_num: int, params: dict[str, int], fans: list[Fan]) -> None:
@@ -134,11 +142,12 @@ class GPU:
         self.__t_min = params['t_min']
         self.__t_max = params['t_max']
         self.__t_fin = params['t_fin']
-
+        fans_nums = [fan.get_f_num() for fan in fans]
+        log(f'Creada GPU n.º {g_num} con los siguientes ventiladores: {fans_nums!s}.')
 
     @classmethod
     def get_num_gpus(cls) -> int:
-        if cls.__num_gpus < 0:
+        if cls.__num_gpus is None:
             cls.__num_gpus = get_query_num('-q=gpus')
         return cls.__num_gpus
 
@@ -172,16 +181,17 @@ class GPU:
             .stdout.strip())
 
 
-    def buscar_objetivo(self, temp: int, fan: Fan) -> tuple[int, int]:
-        if temp < self.get_t_min():
-            return (0, 0)
-        for t, f in fan.get_curva().items():
-            if temp < t:
-                return (t, f)
-        return (self.get_t_max(), fan.get_v_max())
-
-
 class Manager:
+    __singleton: Optional[Manager] = None
+
+
+    @classmethod
+    def get_singleton(cls) -> Manager:
+        if cls.__singleton is None:
+            cls.__singleton = Manager()
+        return cls.__singleton
+
+
     def __init__(self):
         self.__gpus = []
 
@@ -211,7 +221,7 @@ class Manager:
 
     def bucle(self, temp_actual: int, gpu: GPU, fan: Fan) -> None:
         veloc_actual = fan.get_speed()
-        _, objetivo = gpu.buscar_objetivo(temp_actual, fan)
+        _, objetivo = fan.buscar_objetivo(temp_actual, gpu)
         sgte_veloc = fan.siguiente_velocidad(veloc_actual, objetivo)
         if veloc_actual != 0 and sgte_veloc == 0 and temp_actual > gpu.get_t_fin():
             log(f'No se apaga el ventilador por encima de {gpu.get_t_fin()} grados.')
@@ -278,6 +288,7 @@ def esperar(tiempo=SLEEP):
 
 
 def finalizar(_signum, _frame) -> None:
+    manager = Manager.get_singleton()
     veloc = 0
     i = 0
 
@@ -331,6 +342,41 @@ def finalizar_usr(_signum, _frame):
     sys.exit(0)
 
 
+def error(s):
+    log(f'Error: {s}')
+    sys.exit(1)
+
+def comprobaciones():
+    # kill_already_running()
+    if hay_mas_procesos():
+        error('Hay otro proceso ejecutándose.')
+
+    try:
+        log(f'Proceso iniciado para {GPU.get_num_gpus()} GPUs y {Fan.get_num_fans()} ventiladores.')
+    except ValueError:
+        error('No se pudo obtener el número de GPUs y ventiladores.')
+
+    if GPU.get_num_gpus() != len(GPUS_FANS):
+        error('El número de GPUs instaladas no coincide con el de GPUS_FANS.')
+
+    if Fan.get_num_fans() != sum(len(f) for f in GPUS_FANS.values()):
+        error('El número de ventiladores instalados no coincide con el de GPUS_FANS.')
+
+    g_set, f_set = set(), set()
+    for g_num, f_items in GPUS_FANS.items():
+        if g_num not in range(GPU.get_num_gpus()):
+            error('El número de GPU está fuera del rango.')
+        if g_num in g_set:
+            error('Número de GPU repetido.')
+        g_set.add(g_num)
+        for f_num in f_items:
+            if f_num not in range(Fan.get_num_fans()):
+                error('El número de GPU está fuera del rango.')
+            if f_num in f_set:
+                error('Número de ventilador repetido.')
+            f_set.add(f_num)
+
+
 def main():
     sigs = {
         signal.SIGINT,
@@ -346,29 +392,19 @@ def main():
 
     signal.signal(signal.SIGUSR1, finalizar_usr)
 
-    # kill_already_running()
-    if hay_mas_procesos():
-        log('Hay otro proceso ejecutándose.')
-        sys.exit(1)
-
-    try:
-        log(f'Started process por {GPU.get_num_gpus()} GPUs and {Fan.get_num_fans()} fans.')
-    except ValueError:
-        log('No se pudo obtener el número de GPUs y ventiladores.')
-        sys.exit(1)
+    comprobaciones()
 
     gpus = []
-
-    for g_num, f_nums in GPUS_FANS.items():
+    for g_num, f_items in GPUS_FANS.items():
         fans = []
-        for f_num in f_nums:
-            fan = Fan(f_num, {'v_min': V_MIN, 'v_max': V_MAX, 'v_ceb': V_CEB}, CURVA)
+        for f_num, curva in f_items.items():
+            fan = Fan(f_num, {'v_min': V_MIN, 'v_max': V_MAX, 'v_ceb': V_CEB}, curva)
             fans.append(fan)
         gpu = GPU(g_num, {'t_min': T_MIN, 't_max': T_MAX, 't_fin': T_FIN}, fans)
+        gpus.append(gpu)
 
+    manager = Manager.get_singleton()
     manager.set_gpus(gpus)
-
-
     manager.set_fans_control(1)
     manager.set_speeds(0)
 
@@ -379,8 +415,6 @@ def main():
                 manager.bucle(temp_actual, gpu, fan)
             esperar()
 
-
-manager: Manager = Manager()
 
 if __name__ == '__main__':
     main()
