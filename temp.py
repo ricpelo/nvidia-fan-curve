@@ -46,6 +46,8 @@ class Fan:
 
 
     def __init__(self, f_num: int, params: dict[str, int], curva: dict[int, int]) -> None:
+        if f_num not in range(Fan.get_num_fans()):
+            error('El número de GPU está fuera del rango.')
         self.__f_num = f_num
         self.__curva = curva
         self.__v_min = params['v_min']
@@ -137,6 +139,8 @@ class GPU:
 
 
     def __init__(self, g_num: int, params: dict[str, int], fans: list[Fan]) -> None:
+        if g_num not in range(GPU.get_num_gpus()):
+            error('El número de GPU está fuera del rango.')
         self.__g_num = g_num
         self.__fans = fans
         self.__t_min = params['t_min']
@@ -335,7 +339,7 @@ def finalizar(_signum, _frame) -> None:
 
 
 def finalizar_usr(_signum, _frame):
-    msg = 'Proceso temp.py detenido'
+    msg = 'Proceso temp.py detenido. ¡CUIDADO! El control sigue en modo manual.'
     comando = ['notify-send', '-u', 'critical', msg]
     subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
     log(msg)
@@ -357,24 +361,10 @@ def comprobaciones():
         error('No se pudo obtener el número de GPUs y ventiladores.')
 
     if GPU.get_num_gpus() != len(GPUS_FANS):
-        error('El número de GPUs instaladas no coincide con el de GPUS_FANS.')
+        error('El número de GPUs instaladas no coincide con los que aparecen en GPUS_FANS.')
 
     if Fan.get_num_fans() != sum(len(f) for f in GPUS_FANS.values()):
-        error('El número de ventiladores instalados no coincide con el de GPUS_FANS.')
-
-    g_set, f_set = set(), set()
-    for g_num, f_items in GPUS_FANS.items():
-        if g_num not in range(GPU.get_num_gpus()):
-            error('El número de GPU está fuera del rango.')
-        if g_num in g_set:
-            error('Número de GPU repetido.')
-        g_set.add(g_num)
-        for f_num in f_items:
-            if f_num not in range(Fan.get_num_fans()):
-                error('El número de GPU está fuera del rango.')
-            if f_num in f_set:
-                error('Número de ventilador repetido.')
-            f_set.add(f_num)
+        error('El número de ventiladores instalados no coincide con los que aparecen en GPUS_FANS.')
 
 
 def main():
@@ -386,10 +376,8 @@ def main():
         signal.SIGALRM,
         signal.SIGTERM
     }
-
     for sig in sigs:
         signal.signal(sig, finalizar)
-
     signal.signal(signal.SIGUSR1, finalizar_usr)
 
     comprobaciones()
