@@ -12,7 +12,7 @@ import datetime
 import psutil
 
 
-T_MIN: int = 50   # Temperatura por debajo de la cual el ventilador se apaga
+T_MIN: int = 50   # Temperatura por debajo de la cual el ventilador no se enciende
 T_MAX: int = 90   # Temperatura a partir de la cual se enciende al 100%
 T_FIN: int = 45   # Temperatura a alcanzar al salir
 V_MIN: int = 0    # Velocidad mínima del ventilador
