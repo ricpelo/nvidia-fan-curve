@@ -86,8 +86,8 @@ class Fan:
 
 
     def cebador(self, sgte_veloc: int) -> bool:
-        if self.get_speed() == 0 and sgte_veloc > 0 and sgte_veloc > self.get_v_ceb():
-            log('Iniciando proceso de cebado...')
+        if self.get_speed() < self.get_v_ceb() and sgte_veloc > self.get_v_ceb():
+            log(f'Iniciando proceso de cebado a {self.get_v_ceb()} %...')
             self.set_speed(self.get_v_ceb())
             while self.get_speed() < self.get_v_ceb():
                 log('Finalizando proceso de cebado...')
@@ -228,10 +228,10 @@ class Manager:
         _, objetivo = fan.buscar_objetivo(temp_actual, gpu)
         sgte_veloc = fan.siguiente_velocidad(veloc_actual, objetivo)
         if veloc_actual != 0 and sgte_veloc == 0 and temp_actual > gpu.get_t_fin():
-            log(f'No se apaga el ventilador por encima de {gpu.get_t_fin()} grados.')
+            log(f'[Actual: ({temp_actual} ºC, {veloc_actual} %)] No se apaga el ventilador por encima de {gpu.get_t_fin()} ºC.')
             return
         if veloc_actual != sgte_veloc:
-            log(f'Cambiando a velocidad {sgte_veloc}, con objetivo {objetivo}.')
+            log(f'[Actual: ({temp_actual} ºC, {veloc_actual} %)] Cambiando a velocidad {sgte_veloc} % con objetivo {objetivo} %.')
             if not fan.cebador(sgte_veloc):
                 fan.set_speed(sgte_veloc)
 
@@ -339,7 +339,7 @@ def finalizar(_signum, _frame) -> None:
 
 
 def finalizar_usr(_signum, _frame):
-    msg = 'Proceso temp.py detenido. ¡CUIDADO! El control sigue en modo manual.'
+    msg = "Proceso temp.py detenido.\n¡CUIDADO! El control sigue en modo manual."
     comando = ['notify-send', '-u', 'critical', msg]
     subprocess.run(comando, encoding='utf-8', check=True, stdout=subprocess.PIPE)
     log(msg)
@@ -349,6 +349,7 @@ def finalizar_usr(_signum, _frame):
 def error(s):
     log(f'Error: {s}')
     sys.exit(1)
+
 
 def comprobaciones():
     # kill_already_running()
