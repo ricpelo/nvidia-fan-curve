@@ -89,7 +89,7 @@ class Fan:
         if self.get_speed() < self.get_v_ceb() and sgte_veloc > self.get_v_ceb():
             log(f'Iniciando proceso de cebado a {self.get_v_ceb()} %...')
             self.set_speed(self.get_v_ceb())
-            while self.get_speed() < self.get_v_ceb():
+            while abs(self.get_speed() - self.get_v_ceb()) > 1:
                 log('Finalizando proceso de cebado...')
                 esperar()
             return True
@@ -227,11 +227,12 @@ class Manager:
         veloc_actual = fan.get_speed()
         _, objetivo = fan.buscar_objetivo(temp_actual, gpu)
         sgte_veloc = fan.siguiente_velocidad(veloc_actual, objetivo)
+        stat = f'[Actual: ({temp_actual} ºC, {veloc_actual} %)]'
         if veloc_actual != 0 and sgte_veloc == 0 and temp_actual > gpu.get_t_fin():
-            log(f'[Actual: ({temp_actual} ºC, {veloc_actual} %)] No se apaga el ventilador por encima de {gpu.get_t_fin()} ºC.')
+            log(f'{stat} No se apaga el ventilador por encima de {gpu.get_t_fin()} ºC.')
             return
         if veloc_actual != sgte_veloc:
-            log(f'[Actual: ({temp_actual} ºC, {veloc_actual} %)] Cambiando a velocidad {sgte_veloc} % con objetivo {objetivo} %.')
+            log(f'{stat} Cambiando a velocidad {sgte_veloc} % con objetivo {objetivo} %.')
             if not fan.cebador(sgte_veloc):
                 fan.set_speed(sgte_veloc)
 
