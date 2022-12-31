@@ -125,7 +125,7 @@ class Fan:
         """
         if self.get_speed() < self.get_v_ceb() and sgte_veloc > self.get_v_ceb():
             log(f'Iniciando proceso de cebado al {self.get_v_ceb()} %...')
-            # Empieza primero con una velocidad más reducida (V_INI, que en
+            # Empieza primero con una velocidad más reducida (v_ini, que en
             # principio es 25%) antes de pasar a la velocidad de cebado.
             # TODO: Probar a quitarlo y ver si cambia en algo.
             self.set_speed(self.get_v_ini())
@@ -134,7 +134,8 @@ class Fan:
             self.set_speed(self.get_v_ceb())
             while True:
                 v_actual = self.get_speed()
-                if v_actual >= self.get_v_ceb() and v_actual - self.get_v_ceb() <= 2:
+                if v_actual >= self.get_v_ceb() and v_actual - self.get_v_ceb() <= 2 or \
+                   v_actual <= self.get_v_ceb() and self.get_v_ceb() - v_actual <= 1:
                     break
                 log(f'Continuando proceso de cebado, actualmente al {v_actual} %...')
                 esperar(3.0)
