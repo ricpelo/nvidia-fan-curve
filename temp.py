@@ -107,6 +107,17 @@ class Fan:
         return self.__curva
 
 
+    def arrancar(self):
+        """
+        Pone el ventilador a una velocidad (v_ini, que en principio es 25 %)
+        más baja que la de cebado, si no estaba ya a esa velocidad o superior,
+        y espera unos segundos.
+        """
+        if self.get_speed() < self.get_v_ceb():
+            self.set_speed(self.get_v_ini())
+            esperar(3.0)
+
+
     def cebador(self, sgte_veloc: int) -> bool:
         """
         El ventilador de mi GPU hace un ruido muy desagradable cuando arranca
@@ -128,8 +139,7 @@ class Fan:
             # Empieza primero con una velocidad más reducida (v_ini, que en
             # principio es 25%) antes de pasar a la velocidad de cebado.
             # TODO: Probar a quitarlo y ver si cambia en algo.
-            self.set_speed(self.get_v_ini())
-            esperar(3.0)
+            self.arrancar()
             self.get_speed() # Para hacer log de la velocidad actual
             self.set_speed(self.get_v_ceb())
             while True:
@@ -492,7 +502,11 @@ def finalizar(_signum, _frame) -> None:
                     # primera velocidad:
                     it = iter(fan.get_curva())
                     v_primera = next(it)
-                    veloc = fan.get_v_ceb() if fan.get_speed() < v_primera else v_primera
+                    if fan.get_speed() < v_primera:
+                        fan.arrancar()
+                        veloc = fan.get_v_ceb()
+                    else:
+                        veloc = v_primera
                     fan.set_speed(veloc)
 
         esperar()
