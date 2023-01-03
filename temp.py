@@ -113,7 +113,7 @@ class Fan:
         más baja que la de cebado, si no estaba ya a esa velocidad o superior,
         y espera unos segundos.
         """
-        if self.get_speed() < self.get_v_ceb():
+        if self.get_speed() < self.get_v_ini():
             self.set_speed(self.get_v_ini())
             esperar(3.0)
 
