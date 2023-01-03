@@ -144,8 +144,7 @@ class Fan:
             self.set_speed(self.get_v_ceb())
             while True:
                 v_actual = self.get_speed()
-                if v_actual >= self.get_v_ceb() and v_actual - self.get_v_ceb() <= 2 or \
-                   v_actual <= self.get_v_ceb() and self.get_v_ceb() - v_actual <= 1:
+                if v_actual >= self.get_v_ceb() and v_actual - self.get_v_ceb() <= 2:
                     break
                 log(f'Continuando proceso de cebado, actualmente al {v_actual} %...')
                 esperar(3.0)
