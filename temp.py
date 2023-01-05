@@ -27,15 +27,15 @@ SLEEP: float = 7.0   # Segundos de espera entre comprobaciones
 
 # Curva de temperaturas y velocidades
 # Temperatura (ºC): velocidad (%)
-CURVA: dict[int, int] = {
-    55: 45,
-    60: 60,
-    65: 64,
-    70: 68,
-    75: 75,
-    80: 80,
-    85: 85
-}
+CURVA: dict[int, int] = {             # (-inf, T_MIN) ºC....: 0 %
+    55: 45,                           # [T_MIN, 55) ºC......: 45 %
+    60: 60,                           # [55, 60) ºC.........: 60 %
+    65: 64,                           # [60, 65) ºC.........: 64 %
+    70: 68,                           # [65, 70) ºC.........: 68 %
+    75: 75,                           # [70, 75) ºC.........: 75 %
+    80: 80,                           # [75, 80) ºC.........: 80 %
+    85: 85                            # [80, 85) ºC.........: 85 %
+}                                     # [85, +inf) ºC.......: V_MAX %
 
 
 # GPU: {Diccionario con cada número de ventilador y su curva asociada}
@@ -121,6 +121,7 @@ class Fan:
         y espera t_ini segundos.
         """
         if self.get_speed() < self.get_v_ini():
+            log(f'Arrancando al {self.get_v_ini()} %...')
             self.set_speed(self.get_v_ini())
             esperar(self.get_t_ini())
 
@@ -178,7 +179,8 @@ class Fan:
             lst.append(veloc)
         mediana = round(statistics.median(lst))
         if V_DEBUG:
-            log(f'Velocidades: {lst} Mediana: {mediana} %')
+            target = get_query_str(f'-q=[fan:{self.get_f_num()}]/GPUTargetFanSpeed')
+            log(f'Velocidades: {lst} - Mediana: {mediana} % - Target actual: {target} %')
         return mediana
 
 
@@ -269,7 +271,9 @@ class GPU:
 
     def get_temp(self) -> int:
         """Devuelve la temperatura actual (en ºC) de la GPU."""
-        return get_query_str(f'-q=[gpu:{self.g_num()}]/GPUCoreTemp')
+        temp = get_query_str(f'-q=[gpu:{self.g_num()}]/GPUCoreTemp')
+        log(f'Temp. actual: {temp} ºC')
+        return temp
 
 
     def get_fans(self) -> list[Fan]:
