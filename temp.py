@@ -17,7 +17,7 @@ V_DEBUG = True
 T_MIN: int   = 50    # Temperatura por debajo de la cual el ventilador no se enciende
 T_MAX: int   = 90    # Temperatura a partir de la cual el ventilador se enciende al máximo
 T_FIN: int   = 45    # Temperatura a alcanzar al salir
-V_MIN: int   = 0     # Velocidad mínima del ventilador
+V_MIN: int   = 0     # Velocidad mínima del ventilador (velocidad de apagado)
 V_MAX: int   = 90    # Velocidad máxima del ventilador
 V_INI: int   = 25    # Velocidad inicial del ventilador durante el cebado
 V_CEB: int   = 35    # Velocidad de cebado
@@ -427,7 +427,8 @@ def run_command(command: str) -> subprocess.CompletedProcess[str]:
         comando,
         encoding='utf-8',
         check=True,
-        stdout=subprocess.PIPE
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL
     )
 
 
